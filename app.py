@@ -1,31 +1,37 @@
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+
 import streamlit as st
 import tensorflow as tf
 from tensorflow import keras
 import numpy as np
 from streamlit_drawable_canvas import st_canvas
 from PIL import Image
-import os
 
-# Load and train model once (caches to avoid retraining every time)
 @st.cache_resource
 def load_and_train_model():
     (X_train, y_train), (X_test, y_test) = keras.datasets.mnist.load_data()
-    X_train = X_train / 255.0
-    X_test = X_test / 255.0
-
-    X_train_flat = X_train.reshape(len(X_train), 28 * 28)
-    X_test_flat = X_test.reshape(len(X_test), 28 * 28)
-
-    model = keras.Sequential([
-        keras.layers.Dense(10, input_shape=(784,), activation='sigmoid')
-    ])
-    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-    model.fit(X_train_flat, y_train, epochs=5, verbose=0)
+    X_train = X_train.reshape(-1, 784) / 255.0
     
-    return model, X_train_flat, y_train
+    model = keras.Sequential([
+        keras.layers.Input(shape=(784,)),
+        keras.layers.Dense(256, activation='relu'),
+        keras.layers.Dropout(0.2),
+        keras.layers.Dense(100, activation='relu'),
+        keras.layers.Dense(10, activation='softmax')
+    ])
+    model.compile(optimizer='adam', 
+                  loss='sparse_categorical_crossentropy', 
+                  metrics=['accuracy'])
+    model.fit(X_train, y_train, epochs=15, validation_split=0.2, verbose=0)
+    return model, X_train, y_train
 
-# Load model and dataset
-model, X_train_flat, y_train = load_and_train_model()
+model, X_train, y_train = load_and_train_model()
+
+# Rest of your UI code with color inversion and retraining improvements...
+
+# Rest of your Streamlit UI code...
 
 st.title("Shustah's Eye")
 st.write("Draw a digit below and let the AI predict it. If wrong, correct it to improve the model!")
@@ -63,13 +69,17 @@ if canvas_result.image_data is not None:
 
     if st.button("Submit Feedback & Retrain"):
         if correct_label != predicted_label:
-            st.write(f"Updating model: {predicted_label} → {correct_label}")
-
-            # Add corrected data to the training set
-            X_train_flat = np.append(X_train_flat, img_flat, axis=0)
-            y_train = np.append(y_train, correct_label)
-
-            # Retrain model
-            model.fit(X_train_flat, y_train, epochs=1, verbose=0)
+            # Add 10 augmented variations of the corrected image
+            for _ in range(10):
+                # Add slight random rotations/translations
+                augmented_img = img_array + np.random.normal(0, 0.1, (28,28))
+                X_train = np.append(X_train, augmented_img.reshape(1,784), axis=0)
+                y_train = np.append(y_train, correct_label)
+            
+            # Retrain with lower learning rate
+            model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
+                        loss='sparse_categorical_crossentropy',
+                        metrics=['accuracy'])
+            model.fit(X_train, y_train, epochs=10, verbose=0)  # More epochs
             st.success("Model updated with new training data! 🚀")
 
